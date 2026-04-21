@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-sans: Inter, Avenir, Helvetica, Arial, sans-serif;
+    --page-title-size: 1.5rem;
+    --page-title-line-height: 2rem;
+    --page-title-weight: 600;
+    --page-title-tracking: -0.02em;
+    --page-description-size: 0.875rem;
+    --page-description-line-height: 1.375rem;
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --accent: 217 91% 60%;
+    --accent-foreground: 210 40% 98%;
+    --sidebar: 210 40% 99%;
+    --sidebar-foreground: 222 37% 18%;
+    --sidebar-accent: 214 32% 93%;
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+    --radius-xl: 1rem;
+    /* Product palette (violet → aquamarine). Hex: #7400b8 … #80ffdb */
+    --chart-1: 278 100% 36%;
+    --chart-2: 263 60% 48%;
+    --chart-3: 239 53% 59%;
+    --chart-4: 213 64% 59%;
+    --chart-5: 203 69% 59%;
+    --chart-6: 194 73% 59%;
+    --chart-7: 188 70% 61%;
+    --chart-8: 180 66% 63%;
+    --chart-9: 171 80% 69%;
+    --chart-10: 163 100% 75%;
+    /* Repeat for components that expect 11–20 (same colours, second pass) */
+    --chart-11: 278 100% 36%;
+    --chart-12: 263 60% 48%;
+    --chart-13: 239 53% 59%;
+    --chart-14: 213 64% 59%;
+    --chart-15: 203 69% 59%;
+    --chart-16: 194 73% 59%;
+    --chart-17: 188 70% 61%;
+    --chart-18: 180 66% 63%;
+    --chart-19: 171 80% 69%;
+    --chart-20: 163 100% 75%;
+    --color-income: 152 69% 31%;
+  }
+
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 14%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 14%;
+    --popover-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 224 76% 48%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+    --sidebar: 222 47% 12%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-accent: 217 33% 20%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+}
+
+@layer components {
+  /** Top-of-page titles (Dashboard, Categories, Transactions, Settings). */
+  .page-title {
+    font-size: var(--page-title-size);
+    line-height: var(--page-title-line-height);
+    font-weight: var(--page-title-weight);
+    letter-spacing: var(--page-title-tracking);
+    @apply text-foreground;
+  }
+
+  /** Lead paragraph under page titles — uses muted foreground token. */
+  .page-description {
+    font-size: var(--page-description-size);
+    line-height: var(--page-description-line-height);
+    @apply max-w-3xl text-muted-foreground;
+  }
+}

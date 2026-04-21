@@ -1,0 +1,92 @@
+# Manual builds: macOS (.dmg) + Windows (NSIS .exe). Artefacts downloadable from the Actions run page.
+name: Build installers
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            rust_target: aarch64-apple-darwin
+            bundles: app,dmg
+            artifact_name: cash-cat-macos-arm64
+          - os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            bundles: nsis
+            artifact_name: cash-cat-windows-x64
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Ensure `npm run` scripts see bash on Windows for build-engine-sidecar.sh
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install NSIS (Windows)
+        if: runner.os == 'Windows'
+        run: choco install nsis -y
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Install dependencies (npm)
+        run: npm ci
+
+      - name: Install engine test dependencies & run pytest
+        run: |
+          cd engine
+          python -m pip install -q -r requirements.txt
+          python -m pytest -q
+
+      - name: Typecheck frontend
+        run: npm run typecheck
+
+      - name: Build Tauri app (bundles sidecar + frontend)
+        run: npx tauri build --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundles }}
+
+      - name: List bundle outputs (debug)
+        shell: bash
+        run: |
+          set -e
+          find src-tauri/target -path "*/bundle/*" -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.app" \) 2>/dev/null | head -50 || true
+
+      - name: Upload macOS artefact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          # Tauri may emit the DMG under bundle/dmg or bundle/macos depending on version/config
+          path: src-tauri/target/**/release/bundle/**/*.dmg
+          if-no-files-found: error
+
+      - name: Upload Windows artefact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: src-tauri/target/**/release/bundle/nsis/*.exe
+          if-no-files-found: error
