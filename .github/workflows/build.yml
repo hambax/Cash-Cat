@@ -16,11 +16,11 @@ jobs:
         include:
           - os: macos-latest
             rust_target: aarch64-apple-darwin
-            bundles: app,dmg
+            bundles: "app,dmg"
             artifact_name: cash-cat-macos-arm64
           - os: windows-latest
             rust_target: x86_64-pc-windows-msvc
-            bundles: nsis
+            bundles: "nsis"
             artifact_name: cash-cat-windows-x64
 
     runs-on: ${{ matrix.os }}
