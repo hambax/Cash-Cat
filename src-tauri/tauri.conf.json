@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev:ui",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build && npm run bundle:engine && npm run build:engine-sidecar",
+    "beforeBuildCommand": "npm run build && npm run build:engine-sidecar",
     "frontendDist": "../dist"
   },
   "app": {
@@ -31,9 +31,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": {
-      "bundled-engine": "engine"
-    },
     "externalBin": ["binaries/cash-cat-engine"]
   }
 }

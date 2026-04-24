@@ -13,8 +13,16 @@ class Settings(BaseSettings):
     db_path: Path = Field(default_factory=lambda: Path(os.environ.get("CASH_CAT_DB_PATH", "./data/cash_cat.db")))
     akahu_api_base: str = "https://api.akahu.io/v1"
     # Comma-separated list. Use * for allow-all (not recommended if the engine is reachable beyond localhost).
+    # Include both `tauri://localhost` (macOS webview) and `http://tauri.localhost` (Windows/Linux Tauri v2).
+    # Optional dev ports: some setups use tauri.localhost:1420 or similar; `*` is possible but not recommended.
     cors_origins: str = Field(
-        default="http://127.0.0.1:1420,http://localhost:1420,http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8787,tauri://localhost"
+        default=(
+            "http://127.0.0.1:1420,http://localhost:1420,"
+            "http://127.0.0.1:5173,http://localhost:5173,"
+            "http://127.0.0.1:8787,http://localhost:8787,"
+            "http://tauri.localhost,http://tauri.localhost:1420,http://tauri.localhost:5173,"
+            "tauri://localhost"
+        )
     )
 
 

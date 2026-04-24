@@ -116,13 +116,17 @@ cd engine && python3 -m pytest
 ## Production build
 
 ```bash
+npm run check-versions
 npm run build
 npx tauri build
 ```
 
+Before tagging a release, keep `version` aligned across `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` (see `npm run check-versions`).
+
 ## Documentation
 
+- [docs/INSTALL.md](docs/INSTALL.md) — end-user install (unsigned macOS / Windows, Akahu)  
 - [docs/categorisation.md](docs/categorisation.md) — category rules and overrides  
 - [docs/transfers.md](docs/transfers.md) — transfer pairing and analytics exclusions  
 - [docs/PACKAGING.md](docs/PACKAGING.md) — local desktop build (`.app` / DMG)  
-- [docs/GITHUB_CI.md](docs/GITHUB_CI.md) — build macOS `.dmg` and Windows `.exe` in GitHub Actions
+- [docs/GITHUB_CI.md](docs/GITHUB_CI.md) — build installers in GitHub Actions and publish Releases

@@ -44,11 +44,20 @@ npm run tauri:release
 ## What gets built
 
 1. **Vite** frontend → `dist/` (`npm run build`).
-2. **`bundle:engine`** — copies [`engine/`](../engine/) into `src-tauri/bundled-engine/` via [`scripts/bundle-engine.mjs`](../scripts/bundle-engine.mjs) (no tests, caches, or PyInstaller output). A thin [`scripts/bundle-engine.sh`](../scripts/bundle-engine.sh) wrapper calls the same script.
-3. **`build:engine-sidecar`** — PyInstaller produces `src-tauri/binaries/cash-cat-engine-<target-triple>` (see [`scripts/build-engine-sidecar.sh`](../scripts/build-engine-sidecar.sh)).
-4. **`tauri build`** — bundles the web assets, copies `bundled-engine` into `Resources/engine`, embeds the sidecar next to the app executable, and produces **`Cash Cat.app`**.
+2. **`build:engine-sidecar`** — PyInstaller produces `src-tauri/binaries/cash-cat-engine-<host-triple>` (see [`scripts/build-engine-sidecar.sh`](../scripts/build-engine-sidecar.sh)). This is the only engine artefact in **release** packages.
+3. **`tauri build`** — bundles the web assets, embeds the sidecar next to the app executable, and produces **`Cash Cat.app`** / the Windows install payload.
 
-At runtime, [`src-tauri/src/lib.rs`](../src-tauri/src/lib.rs) starts the **sidecar** if it exists beside the main binary; otherwise it falls back to `python3 -m uvicorn` using the bundled or development `engine/` tree.
+**Optional (development only):** you can still run `npm run bundle:engine` to populate `src-tauri/bundled-engine/` for experiments; the default `beforeBuildCommand` in [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json) does **not** include it, so the shipped app is smaller and always uses the sidecar in production.
+
+At runtime, [`src-tauri/src/lib.rs`](../src-tauri/src/lib.rs) starts the **sidecar** next to the main binary. In **debug** builds, if there is no sidecar, it can fall back to `python3` + the checkout [`engine/`](../engine/) tree. Release builds do not rely on Python on the end user’s machine.
+
+See [INSTALL.md](INSTALL.md) for end-user install steps and [GITHUB_CI.md](GITHUB_CI.md) for CI and releases.
+
+Before tagging a release, run:
+
+```bash
+npm run check-versions
+```
 
 ## Version numbers
 

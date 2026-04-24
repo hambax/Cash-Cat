@@ -5,20 +5,39 @@ import type {
   AIProviderResponse,
   AIProviderTestResult,
 } from "@/types/ai-provider";
+import type { EngineStatusView } from "@/lib/engine-tauri";
+import { isTauriShell } from "@/lib/engine-tauri";
 
 let cachedBase: string | null = null;
 
+/** Call after a successful `retry_engine` so the new port is used. */
+export function clearEngineBaseUrlCache() {
+  cachedBase = null;
+}
+
+async function waitForEngineBaseUrlTauri(): Promise<string> {
+  for (;;) {
+    const s = await invoke<EngineStatusView>("engine_status");
+    if (s.state === "ready") {
+      return s.base_url;
+    }
+    if (s.state === "failed") {
+      throw new Error(s.error?.trim() || "The Cash Cat engine is not available.");
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
 export async function getEngineBaseUrl(): Promise<string> {
   if (cachedBase) return cachedBase;
-  try {
-    cachedBase = await invoke<string>("engine_base_url");
-    return cachedBase;
-  } catch {
-    // Dev fallback when not running inside Tauri
+  if (!isTauriShell()) {
     const envUrl = import.meta.env.VITE_ENGINE_URL as string | undefined;
     cachedBase = envUrl && envUrl.length > 0 ? envUrl : "http://127.0.0.1:8787";
     return cachedBase;
   }
+  const base = await waitForEngineBaseUrlTauri();
+  cachedBase = base;
+  return cachedBase;
 }
 
 /** Browser/network errors where our own copy already explains the failure. */

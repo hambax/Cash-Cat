@@ -1,6 +1,7 @@
 import { Component, StrictMode, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { EngineGate } from "@/components/engine-gate";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./index.css";
@@ -41,7 +42,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <RootErrorBoundary>
       <TooltipProvider delayDuration={200}>
-        <App />
+        <EngineGate>
+          <App />
+        </EngineGate>
       </TooltipProvider>
       <Toaster />
     </RootErrorBoundary>
