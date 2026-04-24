@@ -53,18 +53,30 @@ else
   PORT=19987
 fi
 
-echo "ci-smoke-sidecar: using $SIDECAR on $PORT"
-"$SIDECAR" --host 127.0.0.1 --port "$PORT" &
+LOG="${TMPDIR:-/tmp}/cash_cat_smoke_$$.log"
+echo "ci-smoke-sidecar: using $SIDECAR on $PORT (logs: $LOG)"
+"$SIDECAR" --host 127.0.0.1 --port "$PORT" >"$LOG" 2>&1 &
 SPID=$!
 cleanup() { kill "$SPID" 2>/dev/null || true; }
 trap cleanup EXIT
 
-for _ in $(seq 1 100); do
+# PyInstaller onefile has to unpack to a temp dir and import Python + FastAPI +
+# uvicorn before it can listen; on GitHub runners this can take 20-30 s.
+# Budget 60 s but exit early if the process dies.
+for _ in $(seq 1 120); do
+  if ! kill -0 "$SPID" 2>/dev/null; then
+    echo "ci-smoke-sidecar: sidecar process exited before /health responded"
+    echo "--- sidecar output ---"
+    cat "$LOG" || true
+    exit 1
+  fi
   if curl -sfS "http://127.0.0.1:${PORT}/health" 2>/dev/null | grep -q '"ok"'; then
     echo "ci-smoke-sidecar: /health OK"
     exit 0
   fi
-  sleep 0.1
+  sleep 0.5
 done
 echo "ci-smoke-sidecar: timeout waiting for /health"
+echo "--- sidecar output ---"
+cat "$LOG" || true
 exit 1

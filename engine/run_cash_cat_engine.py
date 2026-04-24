@@ -1,4 +1,10 @@
-"""PyInstaller entry point for the Tauri sidecar (same API as `uvicorn cash_cat.app:app`)."""
+"""PyInstaller entry point for the Tauri sidecar (same API as `uvicorn cash_cat.app:app`).
+
+Inside a PyInstaller onefile bundle, `uvicorn.run("cash_cat.app:app", …)` fails with
+"Error loading ASGI app. Could not import module 'cash_cat.app'." because uvicorn's
+string-based import lookup does not resolve frozen modules reliably. Passing the ASGI
+app object directly bypasses that lookup.
+"""
 
 from __future__ import annotations
 
@@ -13,8 +19,10 @@ def main() -> None:
 
     import uvicorn
 
+    from cash_cat.app import app
+
     uvicorn.run(
-        "cash_cat.app:app",
+        app,
         host=args.host,
         port=args.port,
         log_level="info",
