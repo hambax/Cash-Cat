@@ -1,16 +1,44 @@
 #!/usr/bin/env bash
 # After `tauri build`, start the sidecar on a test port, curl /health, then stop. Run on the build OS.
+#
+# We prefer the PyInstaller binary in src-tauri/binaries/ (no ".app" path). PyInstaller onefile can fail to
+# bootstrap (uvicorn: "Could not import module cash_cat.app") when the same binary is run from
+# a path that includes spaces such as "…/Cash Cat.app/…" because productName is "Cash Cat".
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# Match `cash-cat-engine`, `cash-cat-engine.exe`, or `cash-cat-engine-<triple>` (not only `cash-cat-engine-*`).
-SIDECAR=$(find src-tauri/target -type f \( -name 'cash-cat-engine' -o -name 'cash-cat-engine.exe' -o -name 'cash-cat-engine-*' \) 2>/dev/null | head -1 || true)
+BIN="src-tauri/binaries"
+SIDECAR=""
+
+# 1) Prefer the file produced by `npm run build:engine-sidecar` (stable path, no .app, usually no space issues).
+if [[ -f "$BIN/cash-cat-engine-aarch64-apple-darwin" ]]; then
+  SIDECAR="$BIN/cash-cat-engine-aarch64-apple-darwin"
+elif [[ -f "$BIN/cash-cat-engine-x86_64-apple-darwin" ]]; then
+  SIDECAR="$BIN/cash-cat-engine-x86_64-apple-darwin"
+elif [[ -f "$BIN/cash-cat-engine-x86_64-pc-windows-msvc.exe" ]]; then
+  SIDECAR="$BIN/cash-cat-engine-x86_64-pc-windows-msvc.exe"
+elif [[ -f "$BIN/cash-cat-engine-x86_64-unknown-linux-gnu" ]]; then
+  SIDECAR="$BIN/cash-cat-engine-x86_64-unknown-linux-gnu"
+fi
+
+# 2) Otherwise take any under target/ but skip paths inside a ".app" bundle.
+if [[ -z "$SIDECAR" ]]; then
+  while IFS= read -r f; do
+    case "$f" in
+      *".app"/*) continue ;;
+    esac
+    SIDECAR=$f
+    break
+  done < <(find src-tauri/target -type f \( -name "cash-cat-engine" -o -name "cash-cat-engine.exe" -o -name "cash-cat-engine-*" \) 2>/dev/null | head -20)
+fi
+
 if [[ -z "$SIDECAR" || ! -f "$SIDECAR" ]]; then
-  echo "ci-smoke-sidecar: no cash-cat-engine sidecar under src-tauri/target"
-  find src-tauri/target -name "cash-cat-engine*" 2>/dev/null | head -20 || true
+  echo "ci-smoke-sidecar: no cash-cat-engine sidecar found (binaries/ or target/, excluding .app paths)"
+  find src-tauri/binaries src-tauri/target -name "cash-cat-engine*" 2>/dev/null | head -30 || true
   exit 1
 fi
+
 if [[ "$SIDECAR" != *.exe ]]; then
   chmod +x "$SIDECAR" 2>/dev/null || true
 fi
