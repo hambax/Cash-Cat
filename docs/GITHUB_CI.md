@@ -9,7 +9,7 @@ It runs:
 
 - `npm run check-versions` (same `version` in `package.json`, [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json), [`src-tauri/Cargo.toml`](../src-tauri/Cargo.toml))
 - engine tests (`pytest`), TypeScript (`tsc`)
-- `tauri build` with the PyInstaller **sidecar** (no bundled Python source in the app bundle — see [PACKAGING.md](PACKAGING.md))
+- `npm run build` (Vite), then `npm run build:engine-sidecar` (PyInstaller into `src-tauri/binaries/`), then `npx tauri build` with `CI_SKIP_SIDECAR=1` so the before-build hook does not repeat that work. Locally, `npx tauri build` still runs the full `npm run tauri:before-build` (see [`scripts/tauri-before-build.mjs`](../scripts/tauri-before-build.mjs)) — no bundled Python source in the app bundle (see [PACKAGING.md](PACKAGING.md))
 - a **smoke test** that starts the sidecar and hits `/health`
 - upload of **Actions artefacts**
 - on **version tags** `v*`, a **GitHub Release** with the installers attached (no login required for end users)

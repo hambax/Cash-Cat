@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev:ui",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build && npm run build:engine-sidecar",
+    "beforeBuildCommand": "npm --prefix .. run tauri:before-build",
     "frontendDist": "../dist"
   },
   "app": {

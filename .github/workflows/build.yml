@@ -46,7 +46,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Setup Python
@@ -74,7 +74,17 @@ jobs:
       - name: Typecheck frontend
         run: npm run typecheck
 
-      - name: Build Tauri app (sidecar + frontend)
+      # Explicit steps: same work as Tauri `beforeBuildCommand` (see `npm run tauri:before-build` / scripts/tauri-before-build.mjs).
+      # In CI we set CI_SKIP_SIDECAR=1 on `tauri build` so the sidecar is not built twice.
+      - name: Build Vite frontend
+        run: npm run build
+
+      - name: Build engine sidecar (PyInstaller)
+        run: npm run build:engine-sidecar
+
+      - name: Build Tauri app
+        env:
+          CI_SKIP_SIDECAR: "1"
         run: npx tauri build --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundles }}
 
       - name: Assert sidecar exists (bundle / target)

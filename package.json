@@ -17,6 +17,7 @@
     "desktop": "tauri dev",
     "typecheck": "tsc --noEmit",
     "check-versions": "node scripts/check-versions.mjs",
+    "tauri:before-build": "node scripts/tauri-before-build.mjs",
     "engine": "cd engine && .venv/bin/python -m uvicorn cash_cat.app:app --host 127.0.0.1 --port 8787 --reload",
     "lint:a11y": "echo \"Run axe or eslint-plugin-jsx-a11y in CI when added\""
   },
