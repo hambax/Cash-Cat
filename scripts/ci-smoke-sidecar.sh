@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-SIDECAR=$(find src-tauri/target -name "cash-cat-engine-*" -type f 2>/dev/null | head -1 || true)
+# Match `cash-cat-engine`, `cash-cat-engine.exe`, or `cash-cat-engine-<triple>` (not only `cash-cat-engine-*`).
+SIDECAR=$(find src-tauri/target -type f \( -name 'cash-cat-engine' -o -name 'cash-cat-engine.exe' -o -name 'cash-cat-engine-*' \) 2>/dev/null | head -1 || true)
 if [[ -z "$SIDECAR" || ! -f "$SIDECAR" ]]; then
   echo "ci-smoke-sidecar: no cash-cat-engine sidecar under src-tauri/target"
   find src-tauri/target -name "cash-cat-engine*" 2>/dev/null | head -20 || true

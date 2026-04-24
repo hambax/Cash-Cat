@@ -25,12 +25,10 @@ jobs:
             rust_target: aarch64-apple-darwin
             bundles: "app,dmg"
             artifact_name: cash-cat-macos-arm64
-            engine_glob: "cash-cat-engine-aarch64-apple-darwin"
           - os: windows-latest
             rust_target: x86_64-pc-windows-msvc
             bundles: "nsis"
             artifact_name: cash-cat-windows-x64
-            engine_glob: "cash-cat-engine-x86_64-pc-windows-msvc.exe"
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -83,14 +81,13 @@ jobs:
         shell: bash
         run: |
           set -e
-          FOUND=0
-          if find src-tauri/target -name "${{ matrix.engine_glob }}" 2>/dev/null | head -1 | grep -q .; then
-            echo "Found embedded sidecar: ${{ matrix.engine_glob }}"
-            FOUND=1
-          fi
-          if [[ "$FOUND" -ne 1 ]]; then
-            echo "Expected file matching ${{ matrix.engine_glob }} under src-tauri/target"
-            find src-tauri/target -name "cash-cat-engine*" 2>/dev/null | head -30 || true
+          # Tauri may place the external binary as `cash-cat-engine-<triple>` or plain `cash-cat-engine[.exe]`.
+          if find src-tauri/target -type f \( -name 'cash-cat-engine' -o -name 'cash-cat-engine.exe' -o -name 'cash-cat-engine-*' \) 2>/dev/null | head -1 | grep -q .; then
+            echo "Found engine sidecar under src-tauri/target"
+            find src-tauri/target -type f \( -name 'cash-cat-engine' -o -name 'cash-cat-engine.exe' -o -name 'cash-cat-engine-*' \) 2>/dev/null | head -10
+          else
+            echo "No cash-cat-engine sidecar found under src-tauri/target"
+            find src-tauri/target -name 'cash-cat-engine*' 2>/dev/null | head -30 || true
             exit 1
           fi
 

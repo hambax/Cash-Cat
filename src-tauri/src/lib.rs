@@ -69,17 +69,19 @@ fn resolve_bundled_engine_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
 
-fn sidecar_filename() -> Option<&'static str> {
+/// Tauri 2 `externalBin` can install the sidecar with the `target-triple` suffix, or as plain `cash-cat-engine[.exe]`
+/// next to the main executable. Try both so packaged apps and local `target/release` match.
+fn sidecar_names_to_try() -> &'static [&'static str] {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Some("cash-cat-engine-aarch64-apple-darwin")
+        &["cash-cat-engine-aarch64-apple-darwin", "cash-cat-engine"]
     } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-        Some("cash-cat-engine-x86_64-apple-darwin")
+        &["cash-cat-engine-x86_64-apple-darwin", "cash-cat-engine"]
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        Some("cash-cat-engine-x86_64-unknown-linux-gnu")
+        &["cash-cat-engine-x86_64-unknown-linux-gnu", "cash-cat-engine"]
     } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-        Some("cash-cat-engine-x86_64-pc-windows-msvc.exe")
+        &["cash-cat-engine-x86_64-pc-windows-msvc.exe", "cash-cat-engine.exe"]
     } else {
-        None
+        &[]
     }
 }
 
@@ -174,13 +176,13 @@ fn spawn_engine_process(
     let db_path = app_dir.join("cash_cat.db");
     let db_path_str = db_path.to_string_lossy().into_owned();
 
-    if let Some(name) = sidecar_filename() {
-        if let Some(exe_dir) = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
-        {
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
+    {
+        for name in sidecar_names_to_try() {
             let sidecar = exe_dir.join(name);
-            if sidecar.exists() {
+            if sidecar.is_file() {
                 let mut c = Command::new(&sidecar);
                 c.env("CASH_CAT_DB_PATH", &db_path_str).args([
                     "--host",
