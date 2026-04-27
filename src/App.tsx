@@ -8,7 +8,7 @@ import { CategoriesPage } from "@/pages/categories";
 import { CategoryDetailPage } from "@/pages/category-detail";
 import { TagAnalyticsPage } from "@/pages/tag-analytics";
 import { apiFetch } from "@/lib/api";
-import { applySavedTheme, clearAppliedTheme } from "@/lib/theme";
+import { applyFullThemeFromSaved, type SavedThemePayload } from "@/lib/theme";
 
 function ThemeSyncOnLeaveSettings() {
   const location = useLocation();
@@ -20,12 +20,8 @@ function ThemeSyncOnLeaveSettings() {
     if (prev === "/settings" && location.pathname !== "/settings") {
       void apiFetch("/settings/theme")
         .then((r) => (r.ok ? r.json() : Promise.resolve({})))
-        .then((t: { primary?: string; accent?: string }) => {
-          if (t.primary || t.accent) {
-            applySavedTheme({ primary: t.primary, accent: t.accent });
-          } else {
-            clearAppliedTheme();
-          }
+        .then((t: SavedThemePayload) => {
+          applyFullThemeFromSaved(t);
         })
         .catch(() => {});
     }
@@ -41,10 +37,8 @@ function App() {
       try {
         const r = await apiFetch("/settings/theme");
         if (!r.ok || cancelled) return;
-        const t = (await r.json()) as { primary?: string; accent?: string };
-        if (t.primary || t.accent) {
-          applySavedTheme({ primary: t.primary, accent: t.accent });
-        }
+        const t = (await r.json()) as SavedThemePayload;
+        applyFullThemeFromSaved(t);
       } catch {
         /* engine offline or no API */
       }

@@ -1,5 +1,22 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { addDays, addMonths, differenceInCalendarDays, format, startOfMonth, subMonths } from "date-fns";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  addDays,
+  addMonths,
+  differenceInCalendarDays,
+  endOfMonth,
+  format,
+  startOfMonth,
+  subMonths,
+} from "date-fns";
 import { enNZ } from "date-fns/locale";
 import { Link } from "react-router-dom";
 import {
@@ -23,9 +40,13 @@ import {
 } from "recharts";
 import type { CategoryOption } from "@/components/category-combobox";
 import { PageHeader } from "@/components/page-header";
+import { BudgetGauge } from "@/components/budget-gauge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -45,10 +66,13 @@ import {
   presetRollingMonths,
   type RollingMonthsPreset,
 } from "@/lib/date-presets";
+import { budgetPeriodPhrase } from "@/lib/budget-period-label";
+import { countBudgetPeriodsInRange, type BudgetPeriod } from "@/lib/budget-proration";
 import { formatYmd, parseYmd } from "@/lib/date-ymd";
 import { formatMoney } from "@/lib/format";
 import { measureParagraphHeight } from "@/lib/pretext-metrics";
 import { cn } from "@/lib/utils";
+import { ChevronDown, Pencil } from "lucide-react";
 
 /** Must match `CardDescription` copy below for pretext height sync. */
 const DASH_DESC_SPENDING =
@@ -109,6 +133,107 @@ export type CashflowBucketMode = "auto" | "day" | "week" | "month";
 type DonutDatum = { key: string; name: string; value: number; pct: number };
 
 const FILTER_STORAGE_KEY = "cashcat.dashboard.analyticsFilters";
+const BUDGET_SCOPE_STORAGE_KEY = "cashcat.dashboard.budgetSpendScope";
+const BUDGET_TIME_VIEW_STORAGE_KEY = "cashcat.dashboard.budgetTimeView";
+
+export type BudgetTimeViewMode = "range_total" | "single_month" | "single_week";
+
+function loadBudgetTimeViewMode(): BudgetTimeViewMode {
+  if (typeof window === "undefined") return "range_total";
+  try {
+    const raw = localStorage.getItem(BUDGET_TIME_VIEW_STORAGE_KEY);
+    if (!raw) return "range_total";
+    const p = JSON.parse(raw) as { mode?: string };
+    if (p.mode === "single_month" || p.mode === "single_week" || p.mode === "range_total") return p.mode;
+  } catch {
+    /* ignore */
+  }
+  return "range_total";
+}
+
+function saveBudgetTimeViewMode(mode: BudgetTimeViewMode) {
+  try {
+    localStorage.setItem(BUDGET_TIME_VIEW_STORAGE_KEY, JSON.stringify({ mode }));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+function monthBoundsFromYm(ym: string): { from: string; to: string } | null {
+  if (!/^\d{4}-\d{2}$/.test(ym.trim())) return null;
+  const [y, m] = ym.split("-").map(Number);
+  const start = new Date(y, m - 1, 1);
+  const end = endOfMonth(start);
+  return { from: formatYmd(start), to: formatYmd(end) };
+}
+
+function weekBoundsFromMondayKey(isoMonday: string): { from: string; to: string } | null {
+  const d = parseYmd(isoMonday.trim());
+  if (!d) return null;
+  return { from: isoMonday.trim().slice(0, 10), to: formatYmd(addDays(d, 6)) };
+}
+
+function formatBudgetMonthPeriodLabel(ym: string): string {
+  const d = parseYmd(`${ym}-01`);
+  return d ? format(d, "MMMM yyyy", { locale: enNZ }) : ym;
+}
+
+function formatBudgetWeekPeriodLabel(isoMonday: string): string {
+  const from = parseYmd(isoMonday);
+  if (!from) return isoMonday;
+  const to = addDays(from, 6);
+  return `${format(from, "d MMM", { locale: enNZ })} – ${format(to, "d MMM yyyy", { locale: enNZ })}`;
+}
+
+export type BudgetAccountMode = "all" | "selected";
+
+export type BudgetSpendScope = {
+  accountMode: BudgetAccountMode;
+  selectedAccountIds: string[];
+  respectCategoryExclusions: boolean;
+  excludePairedTransferLegs: boolean;
+};
+
+function defaultBudgetSpendScope(): BudgetSpendScope {
+  return {
+    accountMode: "all",
+    selectedAccountIds: [],
+    respectCategoryExclusions: true,
+    excludePairedTransferLegs: true,
+  };
+}
+
+function loadBudgetSpendScope(): BudgetSpendScope {
+  if (typeof window === "undefined") return defaultBudgetSpendScope();
+  try {
+    const raw = localStorage.getItem(BUDGET_SCOPE_STORAGE_KEY);
+    if (!raw) return defaultBudgetSpendScope();
+    const p = JSON.parse(raw) as Partial<BudgetSpendScope>;
+    const base = defaultBudgetSpendScope();
+    const accountMode = p.accountMode === "selected" ? "selected" : "all";
+    const selectedAccountIds = Array.isArray(p.selectedAccountIds)
+      ? p.selectedAccountIds.filter((x): x is string => typeof x === "string")
+      : [];
+    return {
+      accountMode,
+      selectedAccountIds,
+      respectCategoryExclusions:
+        typeof p.respectCategoryExclusions === "boolean" ? p.respectCategoryExclusions : base.respectCategoryExclusions,
+      excludePairedTransferLegs:
+        typeof p.excludePairedTransferLegs === "boolean" ? p.excludePairedTransferLegs : base.excludePairedTransferLegs,
+    };
+  } catch {
+    return defaultBudgetSpendScope();
+  }
+}
+
+function saveBudgetSpendScope(s: BudgetSpendScope) {
+  try {
+    localStorage.setItem(BUDGET_SCOPE_STORAGE_KEY, JSON.stringify(s));
+  } catch {
+    /* ignore quota */
+  }
+}
 
 export type DatePresetKind = "last_month" | "m3" | "m6" | "m12" | "m18" | "m24";
 
@@ -205,6 +330,37 @@ function buildAnalyticsBody(f: DashboardFilters): Record<string, unknown> {
   return body;
 }
 
+function budgetScopeOverridesDashboard(scope: BudgetSpendScope, f: DashboardFilters): boolean {
+  if (scope.accountMode === "selected" && scope.selectedAccountIds.length > 0) return true;
+  if (!scope.respectCategoryExclusions && f.excludeExpenseCategoryKeys.length > 0) return true;
+  if (scope.excludePairedTransferLegs !== f.excludePairedTransferLegs) return true;
+  return false;
+}
+
+function buildBudgetSummaryRequestBody(f: DashboardFilters, scope: BudgetSpendScope): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    exclude_paired_transfer_legs: scope.excludePairedTransferLegs,
+    exclude_expense_category_keys: scope.respectCategoryExclusions
+      ? [...f.excludeExpenseCategoryKeys].sort()
+      : [],
+  };
+  if (f.dateFrom && f.dateTo) {
+    body.date_from = f.dateFrom;
+    body.date_to = f.dateTo;
+  }
+  if (scope.accountMode === "selected" && scope.selectedAccountIds.length > 0) {
+    body.sources = [...scope.selectedAccountIds].sort();
+  }
+  return body;
+}
+
+function buildBudgetCardFilterBody(f: DashboardFilters, scope: BudgetSpendScope): Record<string, unknown> {
+  if (budgetScopeOverridesDashboard(scope, f)) {
+    return buildBudgetSummaryRequestBody(f, scope);
+  }
+  return buildAnalyticsBody(f);
+}
+
 /** Daily heatmap only: optional Akahu account id (matches `transactions.account_label`). */
 function buildDailySpendRequestBody(f: DashboardFilters, akahuAccountId: string | null): string {
   const body: Record<string, unknown> = { ...buildAnalyticsBody(f) };
@@ -247,6 +403,45 @@ function setCategoryKey(keys: string[], key: string, on: boolean): string[] {
   return Array.from(s).sort();
 }
 
+type DashboardBudgetRow = {
+  category_key: string;
+  display_name: string;
+  amount_cents: number;
+  period: BudgetPeriod;
+  custom_period_days: number | null;
+};
+
+type BudgetApiItem = {
+  category_key: string;
+  display_name: string;
+  monthly_cents?: number;
+  amount_cents?: number;
+  period?: string;
+  custom_period_days?: number | null;
+};
+
+function mapBudgetRowsFromApi(items: BudgetApiItem[]): DashboardBudgetRow[] {
+  return items.map((row) => ({
+    category_key: row.category_key,
+    display_name: row.display_name,
+    amount_cents: row.amount_cents ?? row.monthly_cents ?? 0,
+    period: (row.period === "weekly" || row.period === "custom" || row.period === "monthly"
+      ? row.period
+      : "monthly") as BudgetPeriod,
+    custom_period_days: row.custom_period_days ?? null,
+  }));
+}
+
+function parseDashboardBudgetSaveError(body: unknown): string {
+  const det = (body as { detail?: unknown }).detail;
+  if (typeof det === "string") return det;
+  if (Array.isArray(det)) {
+    const msg = det.map((x: { msg?: string }) => x.msg ?? "").filter(Boolean).join("; ");
+    return msg || "Could not save budget";
+  }
+  return "Could not save budget";
+}
+
 export function DashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
@@ -259,9 +454,11 @@ export function DashboardPage() {
   const [recurring, setRecurring] = useState<
     { normalised_merchant: string; amount_cents: number; occurrence_count: number }[]
   >([]);
-  const [budgetRows, setBudgetRows] = useState<{ category_key: string; display_name: string; monthly_cents: number }[]>(
-    [],
-  );
+  const [budgetRows, setBudgetRows] = useState<DashboardBudgetRow[]>([]);
+  const [editingBudgetKey, setEditingBudgetKey] = useState<string | null>(null);
+  const [budgetEditDraft, setBudgetEditDraft] = useState("");
+  const [savingBudgetKey, setSavingBudgetKey] = useState<string | null>(null);
+  const [budgetEditErrors, setBudgetEditErrors] = useState<Record<string, string>>({});
   const [filters, setFilters] = useState<DashboardFilters>(() => loadDashboardFilters());
   const [donutActive, setDonutActive] = useState<number | undefined>(undefined);
   const [lineHidden, setLineHidden] = useState<{ income: boolean; expense: boolean }>({
@@ -278,8 +475,79 @@ export function DashboardPage() {
   >([]);
   /** `null` = all linked accounts; otherwise Akahu account id (matches imported `account_label`). */
   const [heatmapAccountId, setHeatmapAccountId] = useState<string | null>(null);
+  const [budgetSpendScope, setBudgetSpendScope] = useState<BudgetSpendScope>(() => loadBudgetSpendScope());
+  const [budgetCategoryAmounts, setBudgetCategoryAmounts] = useState<Map<string, number> | null>(null);
+  const [budgetSummaryLoading, setBudgetSummaryLoading] = useState(false);
+  const [budgetSummaryError, setBudgetSummaryError] = useState<string | null>(null);
+  const [budgetAccountsPopoverOpen, setBudgetAccountsPopoverOpen] = useState(false);
+  const [budgetTimeViewMode, setBudgetTimeViewMode] = useState<BudgetTimeViewMode>(() => loadBudgetTimeViewMode());
+  const [budgetPeriodKey, setBudgetPeriodKey] = useState<string | null>(null);
+  const [budgetCategorySeries, setBudgetCategorySeries] = useState<
+    { period: string; by_category: Record<string, number> }[] | null
+  >(null);
+  const [budgetSeriesLoading, setBudgetSeriesLoading] = useState(false);
+  const [budgetSeriesError, setBudgetSeriesError] = useState<string | null>(null);
   const spendingHeaderRef = useRef<HTMLDivElement>(null);
   const [syncCardDescriptionMinH, setSyncCardDescriptionMinH] = useState<number | undefined>(undefined);
+
+  const refreshBudgetRows = useCallback(async () => {
+    const b = await apiFetch("/budgets");
+    if (b.ok) {
+      const bd = (await b.json()) as { items?: BudgetApiItem[] };
+      setBudgetRows(mapBudgetRowsFromApi(bd.items ?? []));
+    }
+  }, []);
+
+  const saveDashboardBudget = useCallback(
+    async (row: DashboardBudgetRow, draft: string) => {
+      const dollars = Number.parseFloat(draft);
+      if (Number.isNaN(dollars) || dollars < 0) {
+        setBudgetEditErrors((prev) => ({
+          ...prev,
+          [row.category_key]: "Enter a non-negative amount.",
+        }));
+        return;
+      }
+      if (row.period === "custom") {
+        const d = row.custom_period_days;
+        if (d == null || d < 1 || d > 366) {
+          setBudgetEditErrors((prev) => ({
+            ...prev,
+            [row.category_key]: "Custom period is invalid — fix this budget on Categories.",
+          }));
+          return;
+        }
+      }
+      setSavingBudgetKey(row.category_key);
+      setBudgetEditErrors((prev) => {
+        const next = { ...prev };
+        delete next[row.category_key];
+        return next;
+      });
+      const body: Record<string, unknown> = {
+        amount_cents: Math.round(dollars * 100),
+        period: row.period,
+      };
+      if (row.period === "custom") body.custom_period_days = row.custom_period_days;
+      const res = await apiFetch(`/budgets/${encodeURIComponent(row.category_key)}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setSavingBudgetKey(null);
+      if (res.ok) {
+        await refreshBudgetRows();
+        setEditingBudgetKey(null);
+        setBudgetEditDraft("");
+      } else {
+        const e = await res.json().catch(() => ({}));
+        setBudgetEditErrors((prev) => ({
+          ...prev,
+          [row.category_key]: parseDashboardBudgetSaveError(e),
+        }));
+      }
+    },
+    [refreshBudgetRows],
+  );
 
   useLayoutEffect(() => {
     const el = spendingHeaderRef.current;
@@ -363,6 +631,56 @@ export function DashboardPage() {
   }, [filters]);
 
   useEffect(() => {
+    saveBudgetSpendScope(budgetSpendScope);
+  }, [budgetSpendScope]);
+
+  useEffect(() => {
+    saveBudgetTimeViewMode(budgetTimeViewMode);
+  }, [budgetTimeViewMode]);
+
+  useEffect(() => {
+    if (budgetTimeViewMode === "range_total") {
+      setBudgetCategorySeries(null);
+      setBudgetSeriesError(null);
+      setBudgetSeriesLoading(false);
+      setBudgetPeriodKey(null);
+      return;
+    }
+    const bucket = budgetTimeViewMode === "single_month" ? "month" : "week";
+    const base = buildBudgetCardFilterBody(filters, budgetSpendScope);
+    const body = JSON.stringify({ ...base, bucket });
+    let cancelled = false;
+    setBudgetCategorySeries(null);
+    setBudgetSeriesLoading(true);
+    setBudgetSeriesError(null);
+    void (async () => {
+      const res = await apiFetch("/analytics/monthly-by-category", { method: "POST", body });
+      if (cancelled) return;
+      setBudgetSeriesLoading(false);
+      if (res.ok) {
+        const data = (await res.json()) as {
+          series?: { period: string; by_category: Record<string, number> }[];
+        };
+        setBudgetCategorySeries(data.series ?? []);
+      } else {
+        setBudgetCategorySeries(null);
+        setBudgetSeriesError("Could not load periods for budget view.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [budgetTimeViewMode, filters, budgetSpendScope]);
+
+  useEffect(() => {
+    if (budgetTimeViewMode === "range_total") return;
+    const list = budgetCategorySeries;
+    if (!list?.length) return;
+    const keys = list.map((s) => s.period);
+    setBudgetPeriodKey((prev) => (prev && keys.includes(prev) ? prev : keys[keys.length - 1] ?? null));
+  }, [budgetTimeViewMode, budgetCategorySeries]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       const r = await apiFetch("/akahu/accounts");
@@ -376,11 +694,53 @@ export function DashboardPage() {
         if (prev == null) return null;
         return list.some((a) => a.akahu_account_id === prev) ? prev : null;
       });
+      setBudgetSpendScope((prev) => ({
+        ...prev,
+        selectedAccountIds: prev.selectedAccountIds.filter((id) => list.some((a) => a.akahu_account_id === id)),
+      }));
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const budgetScopeActive = useMemo(
+    () => budgetScopeOverridesDashboard(budgetSpendScope, filters),
+    [budgetSpendScope, filters],
+  );
+
+  useEffect(() => {
+    if (!budgetScopeActive) {
+      setBudgetCategoryAmounts(null);
+      setBudgetSummaryError(null);
+      setBudgetSummaryLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setBudgetSummaryLoading(true);
+    setBudgetSummaryError(null);
+    void (async () => {
+      const body = JSON.stringify(buildBudgetSummaryRequestBody(filters, budgetSpendScope));
+      const res = await apiFetch("/analytics/summary", { method: "POST", body });
+      if (cancelled) return;
+      setBudgetSummaryLoading(false);
+      if (res.ok) {
+        const data = (await res.json()) as { categories?: CategoryRow[] };
+        const raw = data.categories ?? [];
+        const m = new Map<string, number>();
+        for (const c of raw) {
+          if (c.key) m.set(c.key, c.amount_cents);
+        }
+        setBudgetCategoryAmounts(m);
+      } else {
+        setBudgetCategoryAmounts(null);
+        setBudgetSummaryError("Could not load spending for these budget options.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [budgetScopeActive, budgetSpendScope, filters]);
 
   useEffect(() => {
     const summaryBody = JSON.stringify(buildAnalyticsBody(filters));
@@ -409,7 +769,7 @@ export function DashboardPage() {
         setCashflow(null);
       }
       if (!res.ok && !cf.ok) {
-        setAnalyticsError("Could not load dashboard analytics. Is the engine running?");
+        setAnalyticsError("Could not load dashboard analytics. Is Cash Cat running?");
       } else if (!res.ok) {
         setAnalyticsError("Could not load summary metrics.");
       } else if (!cf.ok) {
@@ -451,10 +811,8 @@ export function DashboardPage() {
         setRecurring(rd.candidates ?? []);
       } else setRecurring([]);
       if (b.ok) {
-        const bd = (await b.json()) as {
-          items?: { category_key: string; display_name: string; monthly_cents: number }[];
-        };
-        setBudgetRows(bd.items ?? []);
+        const bd = (await b.json()) as { items?: BudgetApiItem[] };
+        setBudgetRows(mapBudgetRowsFromApi(bd.items ?? []));
       } else setBudgetRows([]);
     })();
     return () => {
@@ -726,7 +1084,10 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Dashboard" description="Overview for all imported transactions" />
+      <PageHeader
+        title="Dashboard"
+        description="Your spending picture for the date range and filters below. Change dates or “What’s included” to narrow accounts or categories—charts and budgets follow the same rules."
+      />
 
       {analyticsError && (
         <div
@@ -1229,11 +1590,13 @@ export function DashboardPage() {
                       const row = payload[0].payload as Record<string, number | string>;
                       const keys = stackedMonthlyData.keys;
                       const monthTotal = keys.reduce((acc, k) => acc + Number(row[k] ?? 0), 0);
+                      /* Recharts stacks first <Bar> at the bottom; tooltip payload follows that order. Show top-of-stack first. */
+                      const payloadTopFirst = [...payload].reverse();
                       return (
                         <div className="max-w-xs rounded-xl border border-border bg-card p-3 text-sm shadow-md">
                           <p className="mb-2 font-medium text-foreground">{label}</p>
                           <ul className="space-y-2">
-                            {payload.map((p) => {
+                            {payloadTopFirst.map((p) => {
                               const key = String(p.dataKey ?? "");
                               const v = Number(p.value);
                               const pct = monthTotal > 0 ? (v / monthTotal) * 100 : 0;
@@ -1409,32 +1772,463 @@ export function DashboardPage() {
           <CardHeader>
             <CardTitle>Budgets</CardTitle>
             <CardDescription>
-              Compared to category spending in the selected range. Set budgets below under Categories.
+              Compare spending to each budget using the dashboard date range, or switch to one calendar month or one
+              week to see actual versus allowance for that period. Open{" "}
+              <span className="font-medium text-foreground">Spending scope</span> to narrow accounts or rules for these
+              figures only. Set budgets under{" "}
+              <Link to="/categories" className="text-primary underline underline-offset-2">
+                Categories
+              </Link>
+              .
             </CardDescription>
           </CardHeader>
           <CardContent>
             {budgetRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">No budgets set yet.</p>
             ) : (
-              <ul className="space-y-2 text-sm">
-                {budgetRows.map((row) => {
-                  const spent = categories.find((c) => c.key === row.category_key)?.amount_cents ?? 0;
-                  const pct = row.monthly_cents > 0 ? Math.min(100, Math.round((spent / row.monthly_cents) * 100)) : 0;
-                  return (
-                    <li key={row.category_key} className="flex flex-col gap-1 rounded-lg border border-border/80 p-3">
-                      <div className="flex justify-between gap-2">
-                        <span className="font-medium">{row.display_name}</span>
-                        <span className="tabular-nums text-muted-foreground">
-                          {formatMoney(spent)} / {formatMoney(row.monthly_cents)}
-                        </span>
+              <>
+                <details className="mb-4 rounded-xl border border-border/80 bg-muted/25">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium text-foreground marker:hidden [&::-webkit-details-marker]:hidden">
+                    Spending scope
+                    <ChevronDown className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
+                  </summary>
+                  <div className="space-y-3 border-t border-border/60 px-3 pb-3 pt-3">
+                    <div className="flex flex-col gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">Accounts</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={budgetSpendScope.accountMode === "all" ? "default" : "outline"}
+                          className="rounded-xl"
+                          onClick={() => setBudgetSpendScope((s) => ({ ...s, accountMode: "all" }))}
+                        >
+                          All accounts
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={budgetSpendScope.accountMode === "selected" ? "default" : "outline"}
+                          className="rounded-xl"
+                          disabled={heatmapAccounts.length === 0}
+                          onClick={() => setBudgetSpendScope((s) => ({ ...s, accountMode: "selected" }))}
+                        >
+                          Selected accounts
+                        </Button>
+                        {heatmapAccounts.length > 0 ? (
+                          <Popover open={budgetAccountsPopoverOpen} onOpenChange={setBudgetAccountsPopoverOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="rounded-xl"
+                                disabled={budgetSpendScope.accountMode !== "selected"}
+                              >
+                                {budgetSpendScope.selectedAccountIds.length === 0
+                                  ? "Choose accounts…"
+                                  : `${budgetSpendScope.selectedAccountIds.length} selected`}
+                                <ChevronDown className="ml-1 h-4 w-4 opacity-70" aria-hidden />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-80 p-0" align="start">
+                              <ScrollArea className="max-h-64">
+                                <ul className="space-y-0.5 p-2">
+                                  {heatmapAccounts.map((a) => {
+                                    const id = `budget-acct-${a.akahu_account_id}`;
+                                    const checked = budgetSpendScope.selectedAccountIds.includes(a.akahu_account_id);
+                                    return (
+                                      <li key={a.akahu_account_id}>
+                                        <div className="flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/80">
+                                          <Checkbox
+                                            id={id}
+                                            checked={checked}
+                                            disabled={budgetSpendScope.accountMode !== "selected"}
+                                            onCheckedChange={(v) => {
+                                              setBudgetSpendScope((s) => {
+                                                const next = new Set(s.selectedAccountIds);
+                                                if (v === true) next.add(a.akahu_account_id);
+                                                else next.delete(a.akahu_account_id);
+                                                return {
+                                                  ...s,
+                                                  accountMode: "selected",
+                                                  selectedAccountIds: Array.from(next).sort(),
+                                                };
+                                              });
+                                            }}
+                                          />
+                                          <label htmlFor={id} className="cursor-pointer text-sm leading-snug">
+                                            {a.institution_name} · {a.account_name}
+                                            {a.mask ? ` ${a.mask}` : ""}
+                                          </label>
+                                        </div>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              </ScrollArea>
+                            </PopoverContent>
+                          </Popover>
+                        ) : null}
                       </div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                        <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+                      {heatmapAccounts.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Account filtering appears when you have linked accounts (for example via Akahu).
+                        </p>
+                      ) : budgetSpendScope.accountMode === "selected" &&
+                        budgetSpendScope.selectedAccountIds.length === 0 ? (
+                        <p className="text-xs text-amber-700 dark:text-amber-500">
+                          Choose at least one account, or switch to all accounts.
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-3 py-2">
+                      <Label htmlFor="budget-respect-cat" className="text-sm font-normal leading-snug">
+                        Use the same category exclusions as the dashboard
+                      </Label>
+                      <Switch
+                        id="budget-respect-cat"
+                        checked={budgetSpendScope.respectCategoryExclusions}
+                        onCheckedChange={(v) =>
+                          setBudgetSpendScope((s) => ({ ...s, respectCategoryExclusions: Boolean(v) }))
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-3 py-2">
+                      <Label htmlFor="budget-paired" className="text-sm font-normal leading-snug">
+                        Exclude paired transfer legs
+                      </Label>
+                      <Switch
+                        id="budget-paired"
+                        checked={budgetSpendScope.excludePairedTransferLegs}
+                        onCheckedChange={(v) =>
+                          setBudgetSpendScope((s) => ({ ...s, excludePairedTransferLegs: Boolean(v) }))
+                        }
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 rounded-lg text-muted-foreground"
+                        onClick={() =>
+                          setBudgetSpendScope({
+                            accountMode: "all",
+                            selectedAccountIds: [],
+                            respectCategoryExclusions: true,
+                            excludePairedTransferLegs: filters.excludePairedTransferLegs,
+                          })
+                        }
+                      >
+                        Reset to dashboard defaults
+                      </Button>
+                      {budgetScopeActive ? (
+                        <span className="text-xs text-muted-foreground">Using custom scope for the figures below.</span>
+                      ) : null}
+                    </div>
+                  </div>
+                </details>
+                <div className="mb-4 flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/15 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-end">
+                  <div className="min-w-0 flex-1 space-y-1.5 sm:max-w-xs">
+                    <Label htmlFor="budget-time-view" className="text-xs font-medium text-muted-foreground">
+                      Budget period view
+                    </Label>
+                    <Select
+                      value={budgetTimeViewMode}
+                      onValueChange={(v) => setBudgetTimeViewMode(v as BudgetTimeViewMode)}
+                    >
+                      <SelectTrigger id="budget-time-view" className="h-10 w-full rounded-xl">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value="range_total" className="rounded-lg">
+                          Whole dashboard date range
+                        </SelectItem>
+                        <SelectItem value="single_month" className="rounded-lg">
+                          One calendar month
+                        </SelectItem>
+                        <SelectItem value="single_week" className="rounded-lg">
+                          One week (Monday–Sunday)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {budgetTimeViewMode !== "range_total" ? (
+                    <div className="min-w-0 flex-1 space-y-1.5 sm:max-w-xs">
+                      <Label htmlFor="budget-period-pick" className="text-xs font-medium text-muted-foreground">
+                        {budgetTimeViewMode === "single_month" ? "Month" : "Week"}
+                      </Label>
+                      <Select
+                        value={budgetPeriodKey ?? ""}
+                        onValueChange={(v) => setBudgetPeriodKey(v)}
+                        disabled={!budgetCategorySeries?.length || budgetSeriesLoading}
+                      >
+                        <SelectTrigger id="budget-period-pick" className="h-10 w-full rounded-xl">
+                          <SelectValue
+                            placeholder={budgetSeriesLoading ? "Loading…" : "Choose a period"}
+                          />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                          {(budgetCategorySeries ?? []).map((s) => (
+                            <SelectItem key={s.period} value={s.period} className="rounded-lg">
+                              {budgetTimeViewMode === "single_month"
+                                ? formatBudgetMonthPeriodLabel(s.period)
+                                : formatBudgetWeekPeriodLabel(s.period)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
+                </div>
+                {budgetSeriesError ? (
+                  <p className="mb-3 text-sm text-destructive">{budgetSeriesError}</p>
+                ) : null}
+                {budgetSummaryError ? (
+                  <p className="mb-3 text-sm text-destructive">{budgetSummaryError}</p>
+                ) : null}
+                {budgetScopeActive && budgetSummaryLoading ? (
+                  <p className="mb-3 text-xs text-muted-foreground">Updating budget figures…</p>
+                ) : null}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {budgetRows.map((row) => {
+                    const rangeFrom = filters.dateFrom ?? txnBounds?.min ?? null;
+                    const rangeTo = filters.dateTo ?? txnBounds?.max ?? null;
+                    const drillDownActive =
+                      budgetTimeViewMode !== "range_total" &&
+                      Boolean(budgetPeriodKey && rangeFrom && rangeTo);
+
+                    const bounds =
+                      drillDownActive && budgetPeriodKey
+                        ? budgetTimeViewMode === "single_month"
+                          ? monthBoundsFromYm(budgetPeriodKey)
+                          : weekBoundsFromMondayKey(budgetPeriodKey)
+                        : null;
+
+                    const spentPendingRange =
+                      budgetScopeActive && budgetSummaryLoading && budgetCategoryAmounts === null;
+                    const spentPendingDrill = drillDownActive && budgetSeriesLoading;
+
+                    let spent: number | null;
+                    let periodCount: number;
+                    let allowance: number;
+                    let subLabel: ReactNode;
+
+                    if (drillDownActive && bounds && budgetPeriodKey) {
+                      const slice = budgetCategorySeries?.find((s) => s.period === budgetPeriodKey);
+                      if (spentPendingDrill) {
+                        spent = null;
+                      } else {
+                        spent = slice ? (slice.by_category[row.category_key] ?? 0) : 0;
+                      }
+                      periodCount = countBudgetPeriodsInRange(
+                        bounds.from,
+                        bounds.to,
+                        row.period,
+                        row.custom_period_days,
+                      );
+                      allowance = row.amount_cents * periodCount;
+                      subLabel =
+                        periodCount > 1 ? (
+                          <span className="block text-xs font-normal text-muted-foreground">
+                            {periodCount} budget periods in this slice · {formatMoney(row.amount_cents)}{" "}
+                            {budgetPeriodPhrase(row.period, row.custom_period_days)} ·{" "}
+                            {budgetTimeViewMode === "single_month"
+                              ? formatBudgetMonthPeriodLabel(budgetPeriodKey)
+                              : formatBudgetWeekPeriodLabel(budgetPeriodKey)}
+                          </span>
+                        ) : (
+                          <span className="block text-xs font-normal text-muted-foreground">
+                            {budgetTimeViewMode === "single_month"
+                              ? formatBudgetMonthPeriodLabel(budgetPeriodKey)
+                              : formatBudgetWeekPeriodLabel(budgetPeriodKey)}{" "}
+                            · {formatMoney(row.amount_cents)} {budgetPeriodPhrase(row.period, row.custom_period_days)}
+                          </span>
+                        );
+                    } else {
+                      const spentPending = spentPendingRange;
+                      spent = budgetScopeActive
+                        ? spentPending
+                          ? null
+                          : (budgetCategoryAmounts?.get(row.category_key) ?? 0)
+                        : (categories.find((c) => c.key === row.category_key)?.amount_cents ?? 0);
+                      periodCount =
+                        rangeFrom && rangeTo
+                          ? countBudgetPeriodsInRange(rangeFrom, rangeTo, row.period, row.custom_period_days)
+                          : 1;
+                      allowance = row.amount_cents * periodCount;
+                      subLabel =
+                        periodCount > 1 ? (
+                          <span className="block text-xs font-normal text-muted-foreground">
+                            {periodCount} budget periods in this range · {formatMoney(row.amount_cents)}{" "}
+                            {budgetPeriodPhrase(row.period, row.custom_period_days)}
+                          </span>
+                        ) : null;
+                    }
+
+                    const ratio =
+                      spent != null && allowance > 0 ? spent / allowance : 0;
+                    const over = spent != null && spent > allowance;
+                    return (
+                      <div
+                        key={row.category_key}
+                        className="flex min-h-0 flex-col rounded-2xl border border-border/80 bg-card/80 p-3 shadow-sm sm:p-4"
+                      >
+                        <div className="mb-1 flex items-start justify-between gap-2">
+                          <span className="min-w-0 truncate text-sm font-semibold text-foreground">
+                            {row.display_name}
+                          </span>
+                          <div className="flex shrink-0 items-center gap-0.5">
+                            {spent === null ? (
+                              <span className="text-xs text-muted-foreground">Updating…</span>
+                            ) : (
+                              <span
+                                className={cn(
+                                  "text-right text-xs tabular-nums text-muted-foreground",
+                                  over && "font-medium text-destructive",
+                                )}
+                              >
+                                {formatMoney(spent)}
+                                <span className="text-muted-foreground"> / </span>
+                                {formatMoney(allowance)}
+                              </span>
+                            )}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-foreground"
+                              aria-label={`Edit budget amount for ${row.display_name}`}
+                              disabled={spent === null || savingBudgetKey === row.category_key}
+                              onClick={() => {
+                                setEditingBudgetKey(row.category_key);
+                                setBudgetEditDraft((row.amount_cents / 100).toFixed(2));
+                                setBudgetEditErrors((prev) => {
+                                  const next = { ...prev };
+                                  delete next[row.category_key];
+                                  return next;
+                                });
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" aria-hidden />
+                            </Button>
+                          </div>
+                        </div>
+                        {editingBudgetKey === row.category_key ? (
+                          <div className="mb-3 space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
+                            <Label
+                              htmlFor={`budget-edit-${row.category_key}`}
+                              className="text-xs text-muted-foreground"
+                            >
+                              Amount ($) {budgetPeriodPhrase(row.period, row.custom_period_days)}
+                            </Label>
+                            <Input
+                              id={`budget-edit-${row.category_key}`}
+                              type="number"
+                              inputMode="decimal"
+                              step={0.01}
+                              min={0}
+                              value={budgetEditDraft}
+                              onChange={(e) => setBudgetEditDraft(e.target.value)}
+                              className="h-9 rounded-xl"
+                              disabled={savingBudgetKey === row.category_key}
+                            />
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="rounded-xl"
+                                disabled={savingBudgetKey === row.category_key}
+                                onClick={() => void saveDashboardBudget(row, budgetEditDraft)}
+                              >
+                                {savingBudgetKey === row.category_key ? "Saving…" : "Save"}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="rounded-xl"
+                                disabled={savingBudgetKey === row.category_key}
+                                onClick={() => {
+                                  setEditingBudgetKey(null);
+                                  setBudgetEditDraft("");
+                                  setBudgetEditErrors((prev) => {
+                                    const next = { ...prev };
+                                    delete next[row.category_key];
+                                    return next;
+                                  });
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                            {budgetEditErrors[row.category_key] ? (
+                              <p className="text-xs text-destructive">{budgetEditErrors[row.category_key]}</p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        <div
+                          className="relative mx-auto mt-1 w-full max-w-[240px] shrink-0"
+                          role="img"
+                          aria-label={
+                            spent === null || allowance <= 0
+                              ? `${row.display_name} budget loading`
+                              : `${row.display_name}: ${formatMoney(spent!)} of ${formatMoney(allowance)}, ${over ? "over" : "within"} budget`
+                          }
+                        >
+                          <BudgetGauge
+                            ratio={ratio}
+                            loading={spent === null}
+                            className="max-w-none"
+                          />
+                          <div
+                            className="pointer-events-none absolute inset-x-0 top-[58%] flex -translate-y-1/2 flex-col items-center justify-center text-center"
+                            aria-hidden
+                          >
+                            {spent === null ? (
+                              <span className="text-sm text-muted-foreground">…</span>
+                            ) : (
+                              <>
+                                <span
+                                  className={cn(
+                                    "text-lg font-semibold tabular-nums leading-tight tracking-tight sm:text-xl",
+                                    over ? "text-destructive" : "text-foreground",
+                                  )}
+                                >
+                                  {formatMoney(spent)}
+                                </span>
+                                <span className="mt-0.5 text-[0.65rem] text-muted-foreground">
+                                  of {formatMoney(allowance)}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        {subLabel ? (
+                          <div className="mt-1 text-center text-[0.7rem] leading-snug text-muted-foreground">
+                            {subLabel}
+                          </div>
+                        ) : null}
+                        {spent === null ? null : (
+                          <div className="mt-auto flex justify-center pt-2">
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold",
+                                over
+                                  ? "border-red-500 bg-red-50 text-red-600 dark:border-red-500 dark:bg-red-950/35 dark:text-red-300"
+                                  : "border-emerald-500 bg-emerald-50 text-[#14532d] dark:border-emerald-400 dark:bg-emerald-950/40 dark:text-emerald-200",
+                              )}
+                            >
+                              {over ? "Over budget" : "Within budget"}
+                            </span>
+                          </div>
+                        )}
                       </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

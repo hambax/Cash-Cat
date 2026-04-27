@@ -95,17 +95,17 @@ function parseHttpErrorDetail(res: Response, body: unknown): string {
 function formatCategoriesLoadError(status: number, detailMsg: string, health: HealthInfo): string {
   if (status === 404) {
     const capHint = health.capabilities?.includes("categories")
-      ? "Health reports categories support—try a full restart of the engine process."
+      ? "Health reports categories support—try fully quitting and reopening Cash Cat."
       : `Health capabilities: ${health.capabilities?.join(", ") ?? "unknown"}.`;
     const meta =
       health.version != null || health.db_path != null
         ? ` Engine version ${health.version ?? "—"}, database ${health.db_path ?? "—"}.`
         : "";
     return (
-      `Categories API returned 404 (Not Found). The process on this URL may not be the Cash Cat engine, or it is an outdated build. ${capHint}${meta} Run \`npm run engine\` from the project root for browser dev, or use the desktop app.`
+      `Categories API returned 404 (Not Found). The process on this URL may not be the Cash Cat backend, or it is an outdated build. ${capHint}${meta} Run \`npm run engine\` from the project root for browser dev, or use the desktop app.`
     );
   }
-  return `Could not load categories: ${detailMsg}. Is the engine running?`;
+  return `Could not load categories: ${detailMsg}. Is Cash Cat running?`;
 }
 
 function sortTransactions(items: Txn[], sortKey: SortKey, dir: SortDir): Txn[] {
@@ -310,7 +310,7 @@ export function TransactionsPage() {
         setCategories(next);
         if (next.length === 0) {
           setCategoriesError(
-            "No categories returned from the engine. If this is a new database, restart the engine so migrations can run.",
+            "No categories were returned. If this is a new database, try restarting Cash Cat so the database can finish setting up.",
           );
         }
       } else {
@@ -634,7 +634,7 @@ export function TransactionsPage() {
                 Retry
               </Button>
               <p className="text-xs text-muted-foreground">
-                Check the engine responds:{" "}
+                If you are troubleshooting, check health:{" "}
                 <code className="break-all rounded bg-muted px-1 py-0.5 font-mono text-[0.8rem]">
                   curl -s {engineUnreachableBase}/health
                 </code>
@@ -670,10 +670,10 @@ export function TransactionsPage() {
             id="txn-cat-filter"
             value={categoryFilterKey}
             onChange={(e) => setCategoryFilterKey(e.target.value)}
-            placeholder="Filter by category key…"
+            placeholder="Filter by category…"
             className="w-full rounded-xl"
             spellCheck={false}
-            aria-label="Filter by category key"
+            aria-label="Filter by category"
           />
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1.5 lg:max-w-xl">
@@ -685,10 +685,10 @@ export function TransactionsPage() {
               id="bulk-cat"
               value={bulkCategoryKey}
               onChange={(e) => setBulkCategoryKey(e.target.value)}
-              placeholder="category_key"
+              placeholder="e.g. groceries"
               className="min-w-0 flex-1 rounded-xl"
               spellCheck={false}
-              aria-label="Category key for bulk assign"
+              aria-label="Category id for bulk assign (same as on Categories)"
             />
             <Button
               type="button"
@@ -873,11 +873,11 @@ export function TransactionsPage() {
             <p className="text-muted-foreground">No transactions yet. Import CSV or sync Akahu.</p>
             {engineDbPath && (
               <p className="text-xs text-muted-foreground">
-                Connected engine database:{" "}
+                Database file in use:{" "}
                 <code className="break-all rounded bg-muted px-1 py-0.5 font-mono text-[0.8rem]">{engineDbPath}</code>.
-                Syncing or importing must use the same engine instance, or set{" "}
+                Syncing or importing must use the same running Cash Cat instance, or set{" "}
                 <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.8rem]">CASH_CAT_DB_PATH</code> so the
-                engine uses the same SQLite file you expect.
+                app uses the same SQLite file you expect.
               </p>
             )}
           </div>

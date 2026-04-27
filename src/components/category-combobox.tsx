@@ -31,6 +31,10 @@ type Props = {
   onAddAllFiltered?: (keys: string[]) => void | Promise<void>;
   /** When greater than 1, shows a toggle to categorise all transactions with the same exact description. */
   sameDescriptionCount?: number;
+  /** Optional id on the trigger for label `htmlFor` (matches Select trigger pattern). */
+  id?: string;
+  /** Extra classes on the trigger (e.g. `max-w-none`); height matches `SelectTrigger` at `h-10`. */
+  triggerClassName?: string;
 };
 
 export function CategoryCombobox({
@@ -42,6 +46,8 @@ export function CategoryCombobox({
   showCategoryKey = true,
   onAddAllFiltered,
   sameDescriptionCount,
+  id,
+  triggerClassName,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -109,12 +115,16 @@ export function CategoryCombobox({
     <Popover modal={false} open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          id={id}
           type="button"
           variant="outline"
           role="combobox"
           aria-expanded={open}
           disabled={disabled || busy}
-          className="h-9 w-full min-w-[10rem] max-w-[16rem] justify-between font-normal"
+          className={cn(
+            "h-10 w-full min-w-[10rem] max-w-[16rem] justify-between border-input bg-background px-3 py-2 font-normal shadow-sm",
+            triggerClassName,
+          )}
         >
           <span className="truncate text-left">{label}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />

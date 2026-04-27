@@ -272,8 +272,9 @@ def monthly_series(conn: sqlite3.Connection, params: dict[str, Any]) -> list[dic
     return [{"month": x["period"], "income": x["income"], "expense": x["expense"]} for x in s]
 
 
-def monthly_series_by_category(conn: sqlite3.Connection, params: dict[str, Any]) -> list[dict[str, Any]]:
-    """Expense totals per calendar month, per category (respects splits when valid)."""
+def series_by_category(conn: sqlite3.Connection, params: dict[str, Any], bucket: str) -> list[dict[str, Any]]:
+    """Expense totals per calendar month or per week (Monday-aligned), per category (respects splits when valid)."""
+    b = bucket if bucket in ("week", "month") else "month"
     rows = filtered_transactions(
         conn,
         date_from=params.get("date_from"),
@@ -290,7 +291,7 @@ def monthly_series_by_category(conn: sqlite3.Connection, params: dict[str, Any])
             continue
         if r["id"] in exp_ex:
             continue
-        period = _bucket_key(r["txn_date"], "month")
+        period = _bucket_key(r["txn_date"], b)
         if period not in buckets:
             buckets[period] = {}
         tid = int(r["id"])
@@ -313,7 +314,7 @@ def monthly_series_by_category(conn: sqlite3.Connection, params: dict[str, Any])
         d1 = date.fromisoformat(str(dt)[:10])
         if d1 < d0:
             d0, d1 = d1, d0
-        keys = _month_keys_in_range(d0, d1)
+        keys = _period_keys_in_range(d0, d1, b)
     else:
         keys = sorted(buckets.keys())
     out: list[dict[str, Any]] = []
@@ -321,6 +322,11 @@ def monthly_series_by_category(conn: sqlite3.Connection, params: dict[str, Any])
         by_cat = buckets.get(k, {})
         out.append({"period": k, "by_category": by_cat})
     return out
+
+
+def monthly_series_by_category(conn: sqlite3.Connection, params: dict[str, Any]) -> list[dict[str, Any]]:
+    """Expense totals per calendar month, per category (respects splits when valid)."""
+    return series_by_category(conn, params, "month")
 
 
 def tag_breakdown(conn: sqlite3.Connection, params: dict[str, Any]) -> list[dict[str, Any]]:

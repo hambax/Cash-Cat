@@ -11,7 +11,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import Body, Depends, FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 import sqlite3
 
 from cash_cat import __version__
@@ -24,14 +24,15 @@ from cash_cat.analytics import (
     dashboard_summary,
     get_settings_json,
     monthly_series,
-    monthly_series_by_category,
     recurring_suggestions,
+    series_by_category,
     resolve_cashflow_bucket,
     savings_rate_series,
     set_settings_json,
     tag_breakdown,
 )
 from cash_cat.categorisation.engine import categorize_connection, explain_transaction_category
+from cash_cat.categorisation.matchers import parse_db_rule
 from cash_cat.merchant import normalise_merchant
 from cash_cat.transfers.auto_tags import AUTO_INTERNAL_TRANSFER_TAGS, merge_tag_slugs_into_transaction
 from cash_cat.transfers.detect import detect_and_persist_pairs
@@ -399,6 +400,10 @@ class CashflowParams(FilterParams):
     bucket: Literal["auto", "day", "week", "month"] = "auto"
 
 
+class SeriesByCategoryParams(FilterParams):
+    bucket: Literal["week", "month"] = "month"
+
+
 @app.post("/analytics/summary", tags=["analytics"])
 def analytics_summary(p: FilterParams, conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, Any]:
     d = dashboard_summary(conn, p.model_dump())
@@ -420,8 +425,12 @@ def analytics_cashflow(p: CashflowParams, conn: sqlite3.Connection = Depends(get
 
 
 @app.post("/analytics/monthly-by-category", tags=["analytics"])
-def analytics_monthly_by_category(p: FilterParams, conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, Any]:
-    return {"series": monthly_series_by_category(conn, p.model_dump())}
+def analytics_monthly_by_category(p: SeriesByCategoryParams, conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, Any]:
+    raw = p.model_dump()
+    bucket = raw.pop("bucket", "month")
+    if bucket not in ("week", "month"):
+        bucket = "month"
+    return {"series": series_by_category(conn, raw, bucket), "bucket": bucket}
 
 
 @app.post("/analytics/tags", tags=["analytics"])
@@ -1168,10 +1177,16 @@ def rules_create(body: RuleCreate, conn: sqlite3.Connection = Depends(get_conn))
     cat = conn.execute("SELECT key FROM categories WHERE key = ? AND archived = 0", (body.category_key,)).fetchone()
     if not cat:
         raise HTTPException(400, detail="Unknown or archived category")
+    pat = body.pattern.strip()
+    if not parse_db_rule(pat):
+        raise HTTPException(
+            400,
+            detail="Pattern must be valid JSON with a supported rule kind (contains_any, contains_all, or regex).",
+        )
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO rules (sort_order, pattern, category_key) VALUES (?, ?, ?)",
-        (body.sort_order, body.pattern.strip(), body.category_key.strip()),
+        (body.sort_order, pat, body.category_key.strip()),
     )
     conn.commit()
     return {"id": int(cur.lastrowid)}
@@ -1182,6 +1197,14 @@ def rules_update(rule_id: int, body: RuleUpdate, conn: sqlite3.Connection = Depe
     row = conn.execute("SELECT id FROM rules WHERE id = ?", (rule_id,)).fetchone()
     if not row:
         raise HTTPException(404, detail="Rule not found")
+    pat_next: str | None = None
+    if body.pattern is not None:
+        pat_next = body.pattern.strip()
+        if not parse_db_rule(pat_next):
+            raise HTTPException(
+                400,
+                detail="Pattern must be valid JSON with a supported rule kind (contains_any, contains_all, or regex).",
+            )
     if body.category_key is not None:
         cat = conn.execute(
             "SELECT key FROM categories WHERE key = ? AND archived = 0",
@@ -1191,9 +1214,9 @@ def rules_update(rule_id: int, body: RuleUpdate, conn: sqlite3.Connection = Depe
             raise HTTPException(400, detail="Unknown or archived category")
     sets: list[str] = []
     args: list[Any] = []
-    if body.pattern is not None:
+    if pat_next is not None:
         sets.append("pattern = ?")
-        args.append(body.pattern.strip())
+        args.append(pat_next)
     if body.category_key is not None:
         sets.append("category_key = ?")
         args.append(body.category_key.strip())
@@ -1218,15 +1241,26 @@ def rules_delete(rule_id: int, conn: sqlite3.Connection = Depends(get_conn)) -> 
 
 
 class BudgetUpsert(BaseModel):
-    monthly_cents: int
+    model_config = ConfigDict(populate_by_name=True)
+
+    amount_cents: int = Field(validation_alias=AliasChoices("amount_cents", "monthly_cents"))
+    period: Literal["weekly", "monthly", "custom"] = "monthly"
+    custom_period_days: int | None = None
     starts_on: str | None = None
+
+    @model_validator(mode="after")
+    def validate_budget_period(self) -> BudgetUpsert:
+        if self.period == "custom":
+            if self.custom_period_days is None or not (1 <= self.custom_period_days <= 366):
+                raise ValueError("For period custom, custom_period_days must be between 1 and 366")
+        return self
 
 
 @app.get("/budgets", tags=["budgets"])
 def budgets_list(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, Any]:
     rows = conn.execute(
         """
-        SELECT b.category_key, b.monthly_cents, b.starts_on, c.display_name
+        SELECT b.category_key, b.monthly_cents, b.starts_on, b.budget_period, b.custom_period_days, c.display_name
         FROM budgets b
         JOIN categories c ON c.key = b.category_key
         ORDER BY c.sort_order, b.category_key
@@ -1237,7 +1271,10 @@ def budgets_list(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, Any]
             {
                 "category_key": r["category_key"],
                 "display_name": r["display_name"],
+                "amount_cents": int(r["monthly_cents"]),
                 "monthly_cents": int(r["monthly_cents"]),
+                "period": str(r["budget_period"] or "monthly"),
+                "custom_period_days": r["custom_period_days"],
                 "starts_on": r["starts_on"],
             }
             for r in rows
@@ -1255,15 +1292,18 @@ def budgets_upsert(
     if not cat:
         raise HTTPException(400, detail="Unknown or archived category")
     starts = body.starts_on.strip() if body.starts_on else None
+    custom_days = body.custom_period_days if body.period == "custom" else None
     conn.execute(
         """
-        INSERT INTO budgets (category_key, monthly_cents, starts_on)
-        VALUES (?, ?, COALESCE(?, date('now')))
+        INSERT INTO budgets (category_key, monthly_cents, starts_on, budget_period, custom_period_days)
+        VALUES (?, ?, COALESCE(?, date('now')), ?, ?)
         ON CONFLICT(category_key) DO UPDATE SET
           monthly_cents = excluded.monthly_cents,
-          starts_on = COALESCE(excluded.starts_on, budgets.starts_on)
+          starts_on = COALESCE(excluded.starts_on, budgets.starts_on),
+          budget_period = excluded.budget_period,
+          custom_period_days = excluded.custom_period_days
         """,
-        (category_key, body.monthly_cents, starts),
+        (category_key, body.amount_cents, starts, body.period, custom_days),
     )
     conn.commit()
     return {"status": "ok"}
@@ -1480,6 +1520,7 @@ class ThemeBody(BaseModel):
     primary: str | None = None
     accent: str | None = None
     chart: list[str] | None = None
+    chart_theme_id: str | None = None
     reset: bool = False
 
 
@@ -1498,8 +1539,11 @@ def post_theme(body: ThemeBody, conn: sqlite3.Connection = Depends(get_conn)) ->
         cur["primary"] = body.primary
     if body.accent:
         cur["accent"] = body.accent
-    if body.chart:
+    if body.chart is not None:
         cur["chart"] = body.chart
+    if body.chart_theme_id is not None:
+        tid = body.chart_theme_id.strip()
+        cur["chart_theme_id"] = tid if tid else None
     set_settings_json(conn, "theme", cur)
     return {"status": "ok"}
 

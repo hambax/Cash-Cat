@@ -2,6 +2,10 @@
 
 Local personal finance UI with a Python **engine** (FastAPI + SQLite) and a **Tauri** desktop shell (or a plain browser for development).
 
+## Who is this for?
+
+Cash Cat is aimed at **everyday New Zealanders** who want a calmer way to see spending, set budgets, and import NZ banking data—without wading through technical setup every month. See **[docs/who-cash-cat-is-for.md](docs/who-cash-cat-is-for.md)** for the product audience and principles that guide UX and copy.
+
 ## Prerequisites
 
 - **Node** 18+
@@ -125,6 +129,7 @@ Before tagging a release, keep `version` aligned across `package.json`, `src-tau
 
 ## Documentation
 
+- [docs/who-cash-cat-is-for.md](docs/who-cash-cat-is-for.md) — audience and product intent (UX and copy)  
 - [docs/INSTALL.md](docs/INSTALL.md) — end-user install (unsigned macOS / Windows, Akahu)  
 - [docs/categorisation.md](docs/categorisation.md) — category rules and overrides  
 - [docs/transfers.md](docs/transfers.md) — transfer pairing and analytics exclusions  

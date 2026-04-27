@@ -20,12 +20,27 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { apiFetch } from "@/lib/api";
 import {
-  applySavedTheme,
+  CHART_THEME_OPTIONS,
+  DEFAULT_CHART_THEME_ID,
+  type ChartThemeId,
+  getThemeColors,
+  isChartThemeId,
+  findPresetIdByChartHexes,
+} from "@/lib/chart-theme-presets";
+import {
+  applyFullThemeFromSaved,
   clearAppliedTheme,
   DEFAULT_THEME_ACCENT_HEX,
   DEFAULT_THEME_PRIMARY_HEX,
 } from "@/lib/theme";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export function SettingsPage() {
   const location = useLocation();
@@ -35,6 +50,16 @@ export function SettingsPage() {
   const [eraseBusy, setEraseBusy] = useState(false);
   const [primary, setPrimary] = useState(DEFAULT_THEME_PRIMARY_HEX);
   const [accent, setAccent] = useState(DEFAULT_THEME_ACCENT_HEX);
+  const [chartThemeId, setChartThemeId] = useState<ChartThemeId>(DEFAULT_CHART_THEME_ID);
+
+  const previewAppearance = (next: { primary: string; accent: string; chartId: ChartThemeId }) => {
+    applyFullThemeFromSaved({
+      primary: next.primary,
+      accent: next.accent,
+      chart: getThemeColors(next.chartId),
+      chart_theme_id: next.chartId,
+    });
+  };
 
   useEffect(() => {
     invoke("app_data_dir_path")
@@ -50,9 +75,13 @@ export function SettingsPage() {
       .catch(() => setEngineDbPath(null));
     apiFetch("/settings/theme")
       .then((r) => r.json())
-      .then((t: { primary?: string; accent?: string }) => {
+      .then((t: { primary?: string; accent?: string; chart?: string[]; chart_theme_id?: string }) => {
         if (t.primary) setPrimary(t.primary);
         if (t.accent) setAccent(t.accent);
+        const tid = t.chart_theme_id?.trim() ?? "";
+        const fromId: ChartThemeId | null = tid && isChartThemeId(tid) ? tid : null;
+        const fromHex = findPresetIdByChartHexes(t.chart);
+        setChartThemeId(fromId ?? fromHex ?? DEFAULT_CHART_THEME_ID);
       })
       .catch(() => {});
   }, []);
@@ -67,10 +96,15 @@ export function SettingsPage() {
   }, [location.hash, location.pathname]);
 
   async function saveTheme() {
-    applySavedTheme({ primary, accent });
+    previewAppearance({ primary, accent, chartId: chartThemeId });
     await apiFetch("/settings/theme", {
       method: "POST",
-      body: JSON.stringify({ primary, accent }),
+      body: JSON.stringify({
+        primary,
+        accent,
+        chart: getThemeColors(chartThemeId),
+        chart_theme_id: chartThemeId,
+      }),
     });
   }
 
@@ -79,6 +113,7 @@ export function SettingsPage() {
     clearAppliedTheme();
     setPrimary(DEFAULT_THEME_PRIMARY_HEX);
     setAccent(DEFAULT_THEME_ACCENT_HEX);
+    setChartThemeId(DEFAULT_CHART_THEME_ID);
     await apiFetch("/settings/theme", {
       method: "POST",
       body: JSON.stringify({ reset: true }),
@@ -130,12 +165,44 @@ export function SettingsPage() {
           <CardHeader>
             <CardTitle>Appearance</CardTitle>
             <CardDescription>
-              Primary and accent drive buttons, links, focus rings, and the first chart colour. Picking a colour updates
-              the app immediately; use Save colours to store it in your local database (loaded on next launch). Leaving
-              this page without saving restores the last saved theme. Contrast is your responsibility.
+              Primary and accent control buttons, links, and focus rings. The chart palette controls colours on the
+              dashboard and analytics charts. Changes preview immediately; use Save appearance to store them in your
+              local database (loaded on next launch). Leaving this page without saving restores the last saved theme.
+              Contrast is your responsibility.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-1 flex-col gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="chart-palette-select">Chart palette</Label>
+              <Select
+                value={chartThemeId}
+                onValueChange={(v) => {
+                  const id = v as ChartThemeId;
+                  setChartThemeId(id);
+                  previewAppearance({ primary, accent, chartId: id });
+                }}
+              >
+                <SelectTrigger id="chart-palette-select" className="w-full max-w-sm rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  {CHART_THEME_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.id} value={opt.id} className="rounded-lg">
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex flex-wrap gap-1 pt-1" aria-hidden>
+                {getThemeColors(chartThemeId).map((hex, i) => (
+                  <span
+                    key={`${chartThemeId}-${i}`}
+                    className="h-6 w-6 shrink-0 rounded-md border border-border"
+                    style={{ backgroundColor: hex }}
+                  />
+                ))}
+              </div>
+            </div>
             <div className="flex flex-wrap gap-4">
               <div className="space-y-2">
                 <Label>Primary</Label>
@@ -145,7 +212,7 @@ export function SettingsPage() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setPrimary(v);
-                    applySavedTheme({ primary: v, accent });
+                    previewAppearance({ primary: v, accent, chartId: chartThemeId });
                   }}
                   className="h-10 w-20"
                 />
@@ -158,7 +225,7 @@ export function SettingsPage() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setAccent(v);
-                    applySavedTheme({ primary, accent: v });
+                    previewAppearance({ primary, accent: v, chartId: chartThemeId });
                   }}
                   className="h-10 w-20"
                 />
@@ -166,7 +233,7 @@ export function SettingsPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" className="w-fit" onClick={() => void saveTheme()}>
-                Save colours
+                Save appearance
               </Button>
               <Button type="button" variant="outline" className="w-fit" onClick={() => void resetTheme()}>
                 Reset to defaults
@@ -218,7 +285,7 @@ export function SettingsPage() {
           <CardContent className="space-y-3">
             {engineDbPath ? (
               <div className="space-y-1">
-                <p className="text-xs font-medium text-foreground">Engine database file</p>
+                <p className="text-xs font-medium text-foreground">Database file</p>
                 <code className="block rounded-lg bg-muted p-2 text-xs break-all">{engineDbPath}</code>
               </div>
             ) : null}
@@ -230,7 +297,7 @@ export function SettingsPage() {
             ) : null}
             {!engineDbPath && !dataDir ? (
               <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-                Start the Cash Cat engine (for example <code className="rounded bg-background px-1 py-0.5 font-mono text-[0.75rem]">npm run engine</code> from the
+                Start the Cash Cat backend (for example <code className="rounded bg-background px-1 py-0.5 font-mono text-[0.75rem]">npm run engine</code> from the
                 project root) or open the desktop app, then refresh this page. The database file path appears once the app
                 can reach <code className="rounded bg-background px-1 py-0.5 font-mono text-[0.75rem]">/health</code>.
               </p>
@@ -257,7 +324,7 @@ export function SettingsPage() {
                     , along with your categories, rules, budgets, AI provider settings, and appearance settings.
                   </p>
                   <p className="text-xs">
-                    This cannot be undone. Ensure the engine is running if you use the browser against a local API.
+                    This cannot be undone. Ensure Cash Cat is running if you use the browser against a local API.
                   </p>
                 </div>
               </DialogDescription>

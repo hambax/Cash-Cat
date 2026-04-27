@@ -65,7 +65,7 @@ export function formatEngineUnreachableMessage(
       suffix = ` (${msg})`;
     }
   }
-  return `Could not reach the Cash Cat engine at ${baseUrl}. Is it running? In development, run \`npm run dev\` from the project root to start the UI and engine together, or run \`npm run dev:ui\` and \`npm run engine\` in separate terminals. Set \`VITE_ENGINE_URL\` if the engine uses another host or port.${suffix}`;
+  return `Could not reach Cash Cat at ${baseUrl}. Is it running? In development, run \`npm run dev\` from the project root to start the UI and backend together, or run \`npm run dev:ui\` and \`npm run engine\` in separate terminals. Set \`VITE_ENGINE_URL\` if the backend uses another host or port.${suffix}`;
 }
 
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {

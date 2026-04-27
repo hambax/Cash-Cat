@@ -95,7 +95,7 @@ export function TagAnalyticsPage() {
           <>
             This page sums <strong>tags</strong> on each row only — not the category column. The dashboard and{" "}
             <Link to="/categories" className="text-primary underline underline-offset-2">
-              monthly budgets
+              budgets
             </Link>{" "}
             use <strong>categories</strong>. Add manual tags for cross-cutting labels (for example{" "}
             <code className="text-xs">renovation</code> or <code className="text-xs">holiday_2025</code>); internal transfers
@@ -121,7 +121,7 @@ export function TagAnalyticsPage() {
               <span className="font-medium text-foreground">Categories</span> — Each outflow has a category (from your
               rules or set by hand). The dashboard and monthly views use categories. Set{" "}
               <Link to="/categories" className="text-primary underline underline-offset-2">
-                monthly budgets per category
+                budgets per category
               </Link>{" "}
               on the Categories page.
             </li>

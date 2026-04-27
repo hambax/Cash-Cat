@@ -3,8 +3,23 @@
  * (`hsl(var(--primary))`, etc.). See `src/index.css` :root tokens.
  */
 
+import {
+  DEFAULT_CHART_THEME_ID,
+  getThemeColors,
+  isChartThemeId,
+  isValidChartPalette,
+  normaliseChartHexes,
+} from "@/lib/chart-theme-presets";
+
 export const DEFAULT_THEME_PRIMARY_HEX = "#3b82f6";
 export const DEFAULT_THEME_ACCENT_HEX = "#2563eb";
+
+export type SavedThemePayload = {
+  primary?: string | null;
+  accent?: string | null;
+  chart?: string[] | null;
+  chart_theme_id?: string | null;
+};
 
 function hexToRgb(hex: string): [number, number, number] | null {
   const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
@@ -68,13 +83,14 @@ const CUSTOM_THEME_KEYS = [
   "--primary",
   "--primary-foreground",
   "--ring",
-  "--chart-1",
   "--accent",
   "--accent-foreground",
 ] as const;
 
-/** Apply hex brand colours to the document (inline on `html`, overrides stylesheet). */
-export function applySavedTheme(theme: { primary?: string | null; accent?: string | null }): void {
+const CHART_VAR_COUNT = 20;
+
+/** Buttons, links, rings — does not set `--chart-*` (use with a chart palette). */
+export function applyChromeColors(theme: { primary?: string | null; accent?: string | null }): void {
   const root = document.documentElement;
 
   if (theme.primary) {
@@ -82,7 +98,6 @@ export function applySavedTheme(theme: { primary?: string | null; accent?: strin
     if (hsl) {
       root.style.setProperty("--primary", hsl);
       root.style.setProperty("--ring", hsl);
-      root.style.setProperty("--chart-1", hsl);
       root.style.setProperty("--primary-foreground", foregroundHslForHex(theme.primary));
     }
   }
@@ -96,9 +111,97 @@ export function applySavedTheme(theme: { primary?: string | null; accent?: strin
   }
 }
 
+function writeChartVars(norm: string[]): boolean {
+  const root = document.documentElement;
+  const hsls: string[] = [];
+  for (let i = 0; i < 10; i++) {
+    const hsl = hexToHslSpaceSeparated(norm[i]);
+    if (!hsl) return false;
+    hsls.push(hsl);
+  }
+  for (let i = 0; i < 10; i++) {
+    root.style.setProperty(`--chart-${i + 1}`, hsls[i]);
+    root.style.setProperty(`--chart-${i + 11}`, hsls[i]);
+  }
+  return true;
+}
+
+/** Apply 10 analytics colours to `--chart-1`…`--chart-10` and mirror `--chart-11`…`--chart-20`. */
+export function applyChartPalette(hexes: string[]): boolean {
+  const fallback = normaliseChartHexes(getThemeColors(DEFAULT_CHART_THEME_ID));
+  if (!isValidChartPalette(hexes)) {
+    writeChartVars(fallback);
+    return false;
+  }
+  const norm = normaliseChartHexes(hexes);
+  if (!writeChartVars(norm)) {
+    writeChartVars(fallback);
+    return false;
+  }
+  return true;
+}
+
+export function clearChartPaletteOverrides(): void {
+  for (let i = 1; i <= CHART_VAR_COUNT; i++) {
+    document.documentElement.style.removeProperty(`--chart-${i}`);
+  }
+}
+
+/**
+ * Primary/accent only, and maps primary to `--chart-1` (legacy / no saved palette).
+ */
+export function applySavedTheme(theme: { primary?: string | null; accent?: string | null }): void {
+  applyChromeColors(theme);
+  const root = document.documentElement;
+  if (theme.primary) {
+    const hsl = hexToHslSpaceSeparated(theme.primary);
+    if (hsl) {
+      root.style.setProperty("--chart-1", hsl);
+      root.style.setProperty("--chart-11", hsl);
+    }
+  }
+}
+
+function hasAnySavedTheme(t: SavedThemePayload): boolean {
+  return Boolean(
+    t.primary?.trim() ||
+      t.accent?.trim() ||
+      (t.chart && t.chart.length > 0) ||
+      t.chart_theme_id?.trim(),
+  );
+}
+
+/**
+ * Apply saved JSON from `/settings/theme`: full chart palette when present, otherwise legacy primary→chart-1.
+ */
+export function applyFullThemeFromSaved(t: SavedThemePayload): void {
+  if (!hasAnySavedTheme(t)) {
+    clearAppliedTheme();
+    return;
+  }
+
+  const fromChart =
+    t.chart && isValidChartPalette(t.chart) ? normaliseChartHexes(t.chart) : null;
+  const fromId =
+    t.chart_theme_id && isChartThemeId(t.chart_theme_id.trim())
+      ? getThemeColors(t.chart_theme_id.trim())
+      : null;
+  /* Prefer bundled preset colours when `chart_theme_id` is set so palette tweaks ship without re-saving hex arrays. */
+  const palette = fromId ?? fromChart;
+
+  if (palette) {
+    applyChartPalette(palette);
+    applyChromeColors({ primary: t.primary, accent: t.accent });
+    return;
+  }
+
+  applySavedTheme({ primary: t.primary, accent: t.accent });
+}
+
 /** Remove inline theme overrides so `index.css` defaults (and `.dark`) apply again. */
 export function clearAppliedTheme(): void {
   for (const key of CUSTOM_THEME_KEYS) {
     document.documentElement.style.removeProperty(key);
   }
+  clearChartPaletteOverrides();
 }

@@ -3,6 +3,16 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
   :root {
     --font-sans: Inter, Avenir, Helvetica, Arial, sans-serif;
     --page-title-size: 1.5rem;
@@ -86,7 +96,7 @@
   }
 
   body {
-    @apply bg-background font-sans text-foreground antialiased;
+    @apply h-full overflow-hidden bg-background font-sans text-foreground antialiased;
   }
 }
 
